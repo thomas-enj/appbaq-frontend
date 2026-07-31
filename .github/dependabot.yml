@@ -14,11 +14,14 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      angular-dependencies:
+      angular-stack-dependencies:
         patterns:
           - "@angular/*"
           - "angular-eslint"
+          - "typescript"
+          - "typescript-eslint"
         update-types:
+          - "major"
           - "minor"
           - "patch"
       npm-non-angular-dependencies:
@@ -27,6 +30,8 @@ updates:
         exclude-patterns:
           - "@angular/*"
           - "angular-eslint"
+          - "typescript"
+          - "typescript-eslint"
         update-types:
           - "minor"
           - "patch"
