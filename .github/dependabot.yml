@@ -13,3 +13,20 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      angular-dependencies:
+        patterns:
+          - "@angular/*"
+          - "angular-eslint"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-non-angular-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@angular/*"
+          - "angular-eslint"
+        update-types:
+          - "minor"
+          - "patch"
