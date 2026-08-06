@@ -1,0 +1,187 @@
+name: Helm CI/CD for AppBAQ Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - helm/appbaq-frontend/**
+      - .github/workflows/helm.yml
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to run on AKS"
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - destroy
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CHART_PATH: helm/appbaq-frontend
+  RELEASE_NAME: appbaq-frontend
+  NAMESPACE: appbaq-then
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Lint chart
+        run: helm lint ${{ env.CHART_PATH }} --strict
+
+      - name: Render manifests
+        run: helm template test ${{ env.CHART_PATH }} > /dev/null
+
+  deploy-aks:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy') }}
+    needs: lint-and-validate
+    environment: aks-deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve AKS cluster (query)
+        id: aks
+        env:
+          AKS_TAG_COHORT: ${{ secrets.AKS_TAG_COHORT }}
+          AKS_TAG_SCOPE: ${{ secrets.AKS_TAG_SCOPE }}
+        run: |
+          if [ -z "$AKS_TAG_COHORT" ] || [ -z "$AKS_TAG_SCOPE" ]; then
+            echo "Missing AKS_TAG_COHORT or AKS_TAG_SCOPE secret" >&2
+            exit 1
+          fi
+
+          AKS_COUNT=$(az aks list \
+            --query "length([?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'])" -o tsv)
+
+          if [ "$AKS_COUNT" -eq 0 ]; then
+            echo "No AKS found with tags cohort=$AKS_TAG_COHORT and scope=$AKS_TAG_SCOPE" >&2
+            exit 1
+          fi
+
+          if [ "$AKS_COUNT" -gt 1 ]; then
+            echo "Multiple AKS found with tags cohort=$AKS_TAG_COHORT and scope=$AKS_TAG_SCOPE" >&2
+            echo "Refine AKS tags so they match exactly one cluster." >&2
+            exit 1
+          fi
+
+          AKS_NAME=$(az aks list \
+            --query "[?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'] | [0].name" -o tsv)
+          AKS_RESOURCE_GROUP=$(az aks list \
+            --query "[?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'] | [0].resourceGroup" -o tsv)
+
+          if [ -z "$AKS_NAME" ] || [ -z "$AKS_RESOURCE_GROUP" ]; then
+            echo "Unable to resolve AKS name or resource group" >&2
+            exit 1
+          fi
+
+          echo "name=$AKS_NAME" >> "$GITHUB_OUTPUT"
+          echo "resource_group=$AKS_RESOURCE_GROUP" >> "$GITHUB_OUTPUT"
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ steps.aks.outputs.resource_group }}" \
+            --name "${{ steps.aks.outputs.name }}" \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Deploy chart
+        run: |
+          helm upgrade --install "${{ env.RELEASE_NAME }}" "${{ env.CHART_PATH }}" \
+            --namespace "${{ env.NAMESPACE }}" \
+            --create-namespace
+
+  destroy-aks:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+    needs: lint-and-validate
+    environment: aks-destroy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve AKS cluster (query)
+        id: aks
+        env:
+          AKS_TAG_COHORT: ${{ secrets.AKS_TAG_COHORT }}
+          AKS_TAG_SCOPE: ${{ secrets.AKS_TAG_SCOPE }}
+        run: |
+          if [ -z "$AKS_TAG_COHORT" ] || [ -z "$AKS_TAG_SCOPE" ]; then
+            echo "Missing AKS_TAG_COHORT or AKS_TAG_SCOPE secret" >&2
+            exit 1
+          fi
+
+          AKS_COUNT=$(az aks list \
+            --query "length([?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'])" -o tsv)
+
+          if [ "$AKS_COUNT" -eq 0 ]; then
+            echo "No AKS found with tags cohort=$AKS_TAG_COHORT and scope=$AKS_TAG_SCOPE" >&2
+            exit 1
+          fi
+
+          if [ "$AKS_COUNT" -gt 1 ]; then
+            echo "Multiple AKS found with tags cohort=$AKS_TAG_COHORT and scope=$AKS_TAG_SCOPE" >&2
+            echo "Refine AKS tags so they match exactly one cluster." >&2
+            exit 1
+          fi
+
+          AKS_NAME=$(az aks list \
+            --query "[?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'] | [0].name" -o tsv)
+          AKS_RESOURCE_GROUP=$(az aks list \
+            --query "[?tags.cohort=='$AKS_TAG_COHORT' && tags.scope=='$AKS_TAG_SCOPE'] | [0].resourceGroup" -o tsv)
+
+          if [ -z "$AKS_NAME" ] || [ -z "$AKS_RESOURCE_GROUP" ]; then
+            echo "Unable to resolve AKS name or resource group" >&2
+            exit 1
+          fi
+
+          echo "name=$AKS_NAME" >> "$GITHUB_OUTPUT"
+          echo "resource_group=$AKS_RESOURCE_GROUP" >> "$GITHUB_OUTPUT"
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ steps.aks.outputs.resource_group }}" \
+            --name "${{ steps.aks.outputs.name }}" \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Destroy release
+        run: |
+          helm uninstall "${{ env.RELEASE_NAME }}" --namespace "${{ env.NAMESPACE }}"
