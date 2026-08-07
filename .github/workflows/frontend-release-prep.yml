@@ -99,74 +99,12 @@ jobs:
           echo "name=$ACR_NAME" >> "$GITHUB_OUTPUT"
           echo "login_server=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Key Vault from tags (query)
-        id: kv
-        env:
-          AZURE_TAG_OWNER: ${{ secrets.AZURE_TAG_OWNER }}
-          AZURE_TAG_ENVIRONMENT: ${{ secrets.AZURE_TAG_ENVIRONMENT }}
-        run: |
-          if [ -z "$AZURE_TAG_OWNER" ] || [ -z "$AZURE_TAG_ENVIRONMENT" ]; then
-            echo "Missing AZURE_TAG_OWNER or AZURE_TAG_ENVIRONMENT secret" >&2
-            exit 1
-          fi
-
-          KV_COUNT=$(az keyvault list \
-            --query "length([?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'])" -o tsv)
-
-          if [ "$KV_COUNT" -eq 0 ]; then
-            echo "No Key Vault found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
-            exit 1
-          fi
-
-          if [ "$KV_COUNT" -gt 1 ]; then
-            echo "Multiple Key Vaults found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
-            echo "Refine tags so they match exactly one Key Vault." >&2
-            exit 1
-          fi
-
-          KEYVAULT_NAME=$(az keyvault list \
-            --query "[?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'] | [0].name" -o tsv)
-
-          if [ -z "$KEYVAULT_NAME" ]; then
-            echo "Unable to resolve Key Vault name" >&2
-            exit 1
-          fi
-
-          echo "name=$KEYVAULT_NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Read frontend build settings from Key Vault
-        id: frontend_build
-        env:
-          KEYVAULT_NAME: ${{ steps.kv.outputs.name }}
-        run: |
-          API_KEY=$(az keyvault secret show \
-            --vault-name "$KEYVAULT_NAME" \
-            --name backend-api-key \
-            --query value -o tsv)
-
-          if [ -z "$API_KEY" ]; then
-            echo "Missing Key Vault secret: backend-api-key" >&2
-            exit 1
-          fi
-
-          # Optional secret for non-default backend URL. Fallback matches in-cluster backend service DNS.
-          API_BASE_URL=$(az keyvault secret show \
-            --vault-name "$KEYVAULT_NAME" \
-            --name frontend-api-base-url \
-            --query value -o tsv 2>/dev/null || true)
-          API_BASE_URL=${API_BASE_URL:-http://appbaq-backend:8080/api}
-
-          echo "api_key=$API_KEY" >> "$GITHUB_OUTPUT"
-          echo "api_base_url=$API_BASE_URL" >> "$GITHUB_OUTPUT"
-
       - name: Login to Azure Container Registry
         run: az acr login --name "${{ steps.acr.outputs.name }}"
 
       - name: Build and Push Docker image
         env:
           REGISTRY_URL: ${{ steps.acr.outputs.login_server }}
-          API_BASE_URL: ${{ steps.frontend_build.outputs.api_base_url }}
-          API_KEY: ${{ steps.frontend_build.outputs.api_key }}
         run: |
           IMAGE_TAG="${GITHUB_SHA::8}"
 
