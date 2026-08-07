@@ -4,12 +4,11 @@ global:
     app.kubernetes.io/part-of: appbaq
     environment: non-production
     owner: thomas-enjalbert
-
 frontend:
   replicaCount: 1
   image:
-    repository: # frontend image repository
-    tag: # frontend image tag
+    repository: baqacrthomasenjalbertykj4.azurecr.io/appbaq-frontend # frontend image repository
+    tag: bdd98d49 # frontend image tag
     pullPolicy: IfNotPresent
   service:
     type: LoadBalancer
@@ -21,13 +20,11 @@ frontend:
       memory: 256Mi
     limits:
       memory: 512Mi
-
 backendLink:
   serviceName: appbaq-backend
   servicePort: 8080
   apiPath: /api
   note: image must be built with API_BASE_URL and API_KEY before deployment
-
 networkPolicy:
   enabled: true
   allowPublicIngressPort: 8080
