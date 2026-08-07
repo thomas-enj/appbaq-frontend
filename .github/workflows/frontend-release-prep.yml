@@ -102,11 +102,70 @@ jobs:
       - name: Login to Azure Container Registry
         run: az acr login --name "${{ steps.acr.outputs.name }}"
 
+      - name: Resolve Key Vault from tags (query)
+        id: kv
+        env:
+          AZURE_TAG_OWNER: ${{ secrets.AZURE_TAG_OWNER }}
+          AZURE_TAG_ENVIRONMENT: ${{ secrets.AZURE_TAG_ENVIRONMENT }}
+        run: |
+          if [ -z "$AZURE_TAG_OWNER" ] || [ -z "$AZURE_TAG_ENVIRONMENT" ]; then
+            echo "Missing AZURE_TAG_OWNER or AZURE_TAG_ENVIRONMENT secret" >&2
+            exit 1
+          fi
+
+          KV_COUNT=$(az keyvault list \
+            --query "length([?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'])" -o tsv)
+
+          if [ "$KV_COUNT" -eq 0 ]; then
+            echo "No Key Vault found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
+            exit 1
+          fi
+
+          if [ "$KV_COUNT" -gt 1 ]; then
+            echo "Multiple Key Vaults found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
+            echo "Refine tags so they match exactly one Key Vault." >&2
+            exit 1
+          fi
+
+          KEYVAULT_NAME=$(az keyvault list \
+            --query "[?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'] | [0].name" -o tsv)
+
+          if [ -z "$KEYVAULT_NAME" ]; then
+            echo "Unable to resolve Key Vault name" >&2
+            exit 1
+          fi
+
+          echo "name=$KEYVAULT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Read BACKEND_API_KEY from Key Vault
+        id: backend_api_key
+        env:
+          KEYVAULT_NAME: ${{ steps.kv.outputs.name }}
+        run: |
+          API_KEY=$(az keyvault secret show \
+            --vault-name "$KEYVAULT_NAME" \
+            --name backend-api-key \
+            --query value -o tsv)
+
+          if [ -z "$API_KEY" ]; then
+            echo "Missing Key Vault secret: backend-api-key" >&2
+            exit 1
+          fi
+
+          echo "value=$API_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Build and Push Docker image
         env:
           REGISTRY_URL: ${{ steps.acr.outputs.login_server }}
+          API_BASE_URL: http://appbaq-backend:8080/api
+          API_KEY: ${{ steps.backend_api_key.outputs.value }}
         run: |
           IMAGE_TAG="${GITHUB_SHA::8}"
+
+          if [ -z "$API_KEY" ]; then
+            echo "Unable to resolve BACKEND_API_KEY from Key Vault." >&2
+            exit 1
+          fi
 
           echo "Building and pushing $SERVICE_NAME:$IMAGE_TAG and $SERVICE_NAME:latest to $REGISTRY_URL"
 
