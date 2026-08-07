@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -51,7 +51,7 @@ jobs:
     environment: aks-deploy
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -103,6 +103,7 @@ jobs:
           az aks get-credentials \
             --resource-group "${{ steps.aks.outputs.resource_group }}" \
             --name "${{ steps.aks.outputs.name }}" \
+            --admin \
             --overwrite-existing
 
       - name: Set up Helm
@@ -123,7 +124,7 @@ jobs:
     environment: aks-destroy
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -175,6 +176,7 @@ jobs:
           az aks get-credentials \
             --resource-group "${{ steps.aks.outputs.resource_group }}" \
             --name "${{ steps.aks.outputs.name }}" \
+            --admin \
             --overwrite-existing
 
       - name: Set up Helm
