@@ -1,0 +1,187 @@
+name: Frontend Build & Release Prep
+
+on:
+  push:
+  pull_request:
+
+env:
+  AZURE_CORE_ONLY_SHOW_ERRORS: "true"
+  AZURE_DEFAULTS_OUTPUT: "none"
+  SERVICE_NAME: appbaq-frontend
+
+jobs:
+  build:
+    name: Build and Test Frontend Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build:prod
+
+  build_push:
+    name: Build and Push Docker Image
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    environment: publish-registry
+    outputs:
+      acr_login_server: ${{ steps.acr.outputs.login_server }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve ACR from tags (query)
+        id: acr
+        env:
+          AZURE_TAG_OWNER: ${{ secrets.AZURE_TAG_OWNER }}
+          AZURE_TAG_ENVIRONMENT: ${{ secrets.AZURE_TAG_ENVIRONMENT }}
+        run: |
+          if [ -z "$AZURE_TAG_OWNER" ] || [ -z "$AZURE_TAG_ENVIRONMENT" ]; then
+            echo "Missing AZURE_TAG_OWNER or AZURE_TAG_ENVIRONMENT secret" >&2
+            exit 1
+          fi
+
+          ACR_COUNT=$(az acr list \
+            --query "length([?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'])" -o tsv)
+
+          if [ "$ACR_COUNT" -eq 0 ]; then
+            echo "No ACR found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
+            exit 1
+          fi
+
+          if [ "$ACR_COUNT" -gt 1 ]; then
+            echo "Multiple ACR found with tags owner=$AZURE_TAG_OWNER and environment=$AZURE_TAG_ENVIRONMENT" >&2
+            echo "Refine tags so they match exactly one ACR." >&2
+            exit 1
+          fi
+
+          ACR_NAME=$(az acr list \
+            --query "[?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'] | [0].name" -o tsv)
+          ACR_LOGIN_SERVER=$(az acr list \
+            --query "[?tags.owner=='$AZURE_TAG_OWNER' && tags.environment=='$AZURE_TAG_ENVIRONMENT'] | [0].loginServer" -o tsv)
+
+          if [ -z "$ACR_NAME" ] || [ -z "$ACR_LOGIN_SERVER" ]; then
+            echo "Unable to resolve ACR name or login server" >&2
+            exit 1
+          fi
+
+          echo "name=$ACR_NAME" >> "$GITHUB_OUTPUT"
+          echo "login_server=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Azure Container Registry
+        run: az acr login --name "${{ steps.acr.outputs.name }}"
+
+      - name: Build and Push Docker image
+        env:
+          REGISTRY_URL: ${{ steps.acr.outputs.login_server }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::8}"
+
+          if [ -z "$API_BASE_URL" ] || [ -z "$API_KEY" ]; then
+            echo "Missing API_BASE_URL or API_KEY secret" >&2
+            exit 1
+          fi
+
+          echo "Building and pushing $SERVICE_NAME:$IMAGE_TAG and $SERVICE_NAME:latest to $REGISTRY_URL"
+
+          docker build \
+            -t "$REGISTRY_URL/$SERVICE_NAME:$IMAGE_TAG" \
+            -t "$REGISTRY_URL/$SERVICE_NAME:latest" \
+            --build-arg API_BASE_URL="$API_BASE_URL" \
+            --build-arg API_KEY="$API_KEY" \
+            -f Dockerfile .
+
+          docker push "$REGISTRY_URL/$SERVICE_NAME:$IMAGE_TAG"
+          docker push "$REGISTRY_URL/$SERVICE_NAME:latest"
+
+  update_helm:
+    name: Update Helm Manifests
+    needs: build_push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          YQ_VERSION=v4.44.3
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update manifest and create GitHub PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACR_LOGIN_SERVER: ${{ needs.build_push.outputs.acr_login_server }}
+        run: |
+          export SHORT_SHA="${GITHUB_SHA::8}"
+          export RANDOM_SUFFIX="r${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          export BRANCH_NAME="bump-version-${SHORT_SHA}-${RANDOM_SUFFIX}"
+          export IMAGE_REPOSITORY="${ACR_LOGIN_SERVER}/${SERVICE_NAME}"
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          git checkout -b "$BRANCH_NAME"
+
+          yq -i '.frontend.image.repository = env(IMAGE_REPOSITORY)' helm/appbaq-frontend/values.yaml
+          yq -i '.frontend.image.tag = env(SHORT_SHA)' helm/appbaq-frontend/values.yaml
+
+          yq -i '.appVersion = env(SHORT_SHA)' helm/appbaq-frontend/Chart.yaml
+
+          CURRENT_VERSION=$(yq '.version' helm/appbaq-frontend/Chart.yaml)
+          major=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+          minor=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+          patch=$(echo "$CURRENT_VERSION" | cut -d. -f3)
+          export NEW_CHART_VERSION="$major.$minor.$((patch + 1))"
+          yq -i '.version = env(NEW_CHART_VERSION)' helm/appbaq-frontend/Chart.yaml
+
+          git add helm/appbaq-frontend/values.yaml helm/appbaq-frontend/Chart.yaml
+          git commit -m "cd: bump image to ${SHORT_SHA} and chart to ${NEW_CHART_VERSION}"
+          git push -u origin "$BRANCH_NAME"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Production release: version $SHORT_SHA" \
+            --body "Automatic update following commit ${{ github.sha }}. The ${SERVICE_NAME} image has been updated to tag ${SHORT_SHA}. Branch suffix ${RANDOM_SUFFIX} is only a workflow-run discriminator and is not part of the commit id."
