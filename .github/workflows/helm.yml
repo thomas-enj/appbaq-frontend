@@ -117,6 +117,40 @@ jobs:
             --namespace "${{ env.NAMESPACE }}" \
             --create-namespace
 
+      - name: Show frontend URL
+        run: |
+          SERVICE_NAME="appbaq-frontend"
+          MAX_ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          echo "Waiting for external endpoint on service $SERVICE_NAME in namespace ${{ env.NAMESPACE }}..."
+
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            EXTERNAL_IP=$(kubectl get svc "$SERVICE_NAME" -n "${{ env.NAMESPACE }}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            EXTERNAL_HOSTNAME=$(kubectl get svc "$SERVICE_NAME" -n "${{ env.NAMESPACE }}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+            if [ -n "$EXTERNAL_IP" ]; then
+              URL="http://$EXTERNAL_IP"
+              echo "Frontend URL: $URL"
+              echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
+              echo "Frontend URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            if [ -n "$EXTERNAL_HOSTNAME" ]; then
+              URL="http://$EXTERNAL_HOSTNAME"
+              echo "Frontend URL: $URL"
+              echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
+              echo "Frontend URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            echo "Attempt $i/$MAX_ATTEMPTS: endpoint not assigned yet."
+            sleep $SLEEP_SECONDS
+          done
+
+          echo "No external endpoint assigned yet. Check with: kubectl get svc $SERVICE_NAME -n ${{ env.NAMESPACE }}"
+
   destroy-aks:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
