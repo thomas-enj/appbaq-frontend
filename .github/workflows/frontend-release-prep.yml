@@ -157,7 +157,7 @@ jobs:
       - name: Build and Push Docker image
         env:
           REGISTRY_URL: ${{ steps.acr.outputs.login_server }}
-          API_BASE_URL: http://appbaq-backend:8080/api
+          API_BASE_URL: /api
           API_KEY: ${{ steps.backend_api_key.outputs.value }}
         run: |
           IMAGE_TAG="${GITHUB_SHA::8}"
