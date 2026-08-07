@@ -151,6 +151,28 @@ jobs:
 
           echo "No external endpoint assigned yet. Check with: kubectl get svc $SERVICE_NAME -n ${{ env.NAMESPACE }}"
 
+      - name: Debug frontend-backend connectivity
+        continue-on-error: true
+        run: |
+          echo "=== Frontend deploy image ==="
+          kubectl get deploy appbaq-frontend -n "${{ env.NAMESPACE }}" -o jsonpath='{.spec.template.spec.containers[0].image}' ; echo
+
+          echo "=== Frontend and backend pod status ==="
+          kubectl get pods -n "${{ env.NAMESPACE }}" -l app.kubernetes.io/name=appbaq-frontend -o wide || true
+          kubectl get pods -n "${{ env.NAMESPACE }}" -l app.kubernetes.io/name=appbaq-backend -o wide || true
+
+          FRONTEND_POD=$(kubectl get pod -n "${{ env.NAMESPACE }}" -l app.kubernetes.io/name=appbaq-frontend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -n "$FRONTEND_POD" ]; then
+            echo "=== Active nginx config in frontend pod ==="
+            kubectl exec -n "${{ env.NAMESPACE }}" "$FRONTEND_POD" -- cat /etc/nginx/conf.d/default.conf || true
+
+            echo "=== Backend health check from frontend pod ==="
+            kubectl exec -n "${{ env.NAMESPACE }}" "$FRONTEND_POD" -- sh -c 'wget -qO- http://appbaq-backend:8080/actuator/health || true' || true
+          fi
+
+          echo "=== Recent backend logs ==="
+          kubectl logs -n "${{ env.NAMESPACE }}" deploy/appbaq-backend --tail=120 || true
+
   destroy-aks:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
