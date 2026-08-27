@@ -1,6 +1,6 @@
 apiVersion: v2
 name: appbaq-frontend
 description: Helm chart for appbaq frontend deployment
-version: 0.1.2
-appVersion: "27f0b1f2"
+version: 0.1.3
+appVersion: "d9624a43"
 type: application
