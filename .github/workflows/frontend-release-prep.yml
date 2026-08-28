@@ -264,3 +264,4 @@ jobs:
             --head "$BRANCH_NAME" \
             --title "Production release: version $SHORT_SHA" \
             --body "Automatic update following commit ${{ github.sha }}. The ${SERVICE_NAME} image has been updated to tag ${SHORT_SHA}. Branch suffix ${RANDOM_SUFFIX} is only a workflow-run discriminator and is not part of the commit id."
+            
