@@ -3,9 +3,10 @@ name: Helm CI/CD for AppBAQ Frontend
 on:
   push:
     branches: [main]
-    paths:
-      - helm/appbaq-frontend/**
-      - .github/workflows/helm.yml
+    paths-ignore:
+      - src/**
+      - public/**
+      - .github/workflows/frontend-release-prep.yml
   workflow_dispatch:
     inputs:
       action:
