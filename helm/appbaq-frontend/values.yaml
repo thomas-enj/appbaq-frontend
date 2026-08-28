@@ -7,8 +7,8 @@ global:
 frontend:
   replicaCount: 1
   image:
-    repository: baqacrthomasenjalbertykj4.azurecr.io/appbaq-frontend # frontend image repository
-    tag: 27f0b1f2 # frontend image tag
+    repository: baqacrthomasenjalbertuf1y.azurecr.io/appbaq-frontend # frontend image repository
+    tag: 8d16d81d # frontend image tag
     pullPolicy: IfNotPresent
   service:
     type: LoadBalancer
