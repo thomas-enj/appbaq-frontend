@@ -2,7 +2,13 @@ name: Frontend Build & Release Prep
 
 on:
   push:
+    paths-ignore:
+      - helm/**
+      - .github/workflows/helm.yml
   pull_request:
+    paths-ignore:
+      - helm/**
+      - .github/workflows/helm.yml
 
 env:
   AZURE_CORE_ONLY_SHOW_ERRORS: "true"
