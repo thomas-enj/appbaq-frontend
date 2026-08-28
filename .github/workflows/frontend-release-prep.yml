@@ -6,9 +6,9 @@ on:
       - helm/**
       - .github/workflows/helm.yml
   pull_request:
-    paths-ignore:
-      - helm/**
-      - .github/workflows/helm.yml
+
+permissions:
+  contents: read
 
 env:
   AZURE_CORE_ONLY_SHOW_ERRORS: "true"
@@ -16,8 +16,29 @@ env:
   SERVICE_NAME: appbaq-frontend
 
 jobs:
+  changes:
+    name: Detect frontend changes
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - '**'
+              - '!helm/**'
+              - '!.github/workflows/helm.yml'
+
   build:
     name: Build and Test Frontend Application
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
