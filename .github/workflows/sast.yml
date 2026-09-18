@@ -1,0 +1,86 @@
+name: SAST - SonarCloud
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  sonarcloud-analysis:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Full history required for git blame and PR differential analysis
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Ensure Maven wrapper is executable
+        run: chmod +x mvnw
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Build and analyze with Maven & SonarCloud
+        id: sonar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set +e
+          ./mvnw -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey=thomas-enj_appbaq-frontend \
+            -Dsonar.organization=thomas-enj \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.qualitygate.wait=true 2>&1 | tee maven-sonar.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          REPORT_FILE="target/sonar/report-task.txt"
+          
+          echo "## 🛡️ SAST Scan Summary — SonarCloud" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          if [ -f "$REPORT_FILE" ]; then
+            DASHBOARD_URL=$(grep "dashboardUrl=" "$REPORT_FILE" | cut -d'=' -f2-)
+            PROJECT_KEY=$(grep "projectKey=" "$REPORT_FILE" | cut -d'=' -f2-)
+            
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Project** | \`$PROJECT_KEY\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **SonarCloud Dashboard** | [Open Report]($DASHBOARD_URL) |" >> "$GITHUB_STEP_SUMMARY"
+            
+            if [ "${{ steps.sonar.outputs.exit_code }}" = "0" ]; then
+              echo "| **Quality Gate** | 🟢 **PASSED** |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| **Quality Gate** | 🔴 **FAILED** (Security threshold not met) |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "⚠️ SonarCloud report could not be generated (Maven build error or missing token)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> Result visible without downloading raw logs or artifacts." >> "$GITHUB_STEP_SUMMARY"
+          
+          # Fail the job if Maven or the Quality Gate failed
+          exit ${{ steps.sonar.outputs.exit_code }}
