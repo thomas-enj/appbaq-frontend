@@ -47,6 +47,7 @@
     "@angular/build": "^22.0.5",
     "@angular/cli": "^22.0.5",
     "@angular/compiler-cli": "^22.0.0",
+    "@axe-core/cli": "4.13.0",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.11",
     "angular-eslint": "22.0.0",
