@@ -2,9 +2,9 @@ name: SAST - SonarCloud
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -30,6 +30,10 @@ jobs:
           args: >
             -Dsonar.projectKey=thomas-enj_appbaq-frontend
             -Dsonar.organization=thomas-enj
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=src/**/*.spec.ts
+            -Dsonar.exclusions=src/**/*.spec.ts
             -Dsonar.qualitygate.wait=true
 
       - name: Generate Job Summary
@@ -38,11 +42,11 @@ jobs:
           echo "## 🛡️ SAST Scan Summary — SonarCloud" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "The scan was performed using the official SonarQube action." >> "$GITHUB_STEP_SUMMARY"
-          
+
           if [ "${{ job.status }}" = "success" ]; then
             echo "| **Quality Gate** | 🟢 **PASSED** |" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "| **Quality Gate** | 🔴 **FAILED** (Security threshold not met) |" >> "$GITHUB_STEP_SUMMARY"
           fi
-          
+
           echo "> 🔗 View full details on the [SonarCloud Dashboard](https://sonarcloud.io/dashboard?id=thomas-enj_appbaq-frontend)." >> "$GITHUB_STEP_SUMMARY"
