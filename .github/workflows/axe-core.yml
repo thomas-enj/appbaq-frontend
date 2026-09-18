@@ -54,11 +54,17 @@ jobs:
       - name: Run axe-core Accessibility Scan
         id: axe_scan
         run: |
+          CHROMEDRIVER_PATH=$(command -v chromedriver)
+          if [ -z "$CHROMEDRIVER_PATH" ]; then
+            echo "ChromeDriver is not available on the runner."
+            exit 1
+          fi
+
           set +e
-          ./node_modules/.bin/axe http://localhost:4200 --exit 2>&1 | tee axe-report.txt
+          ./node_modules/.bin/axe http://localhost:4200 --exit --chromedriver-path "$CHROMEDRIVER_PATH" 2>&1 | tee axe-report.txt
           STATUS=${PIPESTATUS[0]}
           set -e
-          echo "exit_code=$STATUS" >> $GITHUB_OUTPUT
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
 
       - name: Generate Job Summary
         if: always()
