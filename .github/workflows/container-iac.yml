@@ -18,17 +18,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build Docker image
-        # Using dummy values to satisfy the Dockerfile ARG requirements without exposing real secrets in CI
-        run: |
-          docker build \
-            --build-arg API_BASE_URL="https://ci-scan-dummy-url" \
-            --build-arg API_KEY="ci-scan-dummy-key" \
-            -t appbaq-frontend:ci-scan .
-
       - name: Run Trivy IaC Misconfig Scan
         id: trivy_iac
-        # Scans Dockerfile, helm charts, and nginx.conf for bad practices
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
@@ -68,12 +59,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build Docker image
-        # Build the frontend image instead of backend
-        run: docker build -t appbaq-frontend:ci-scan .
+        run: |
+          docker build \
+            --build-arg API_BASE_URL="https://ci-scan-dummy-url" \
+            --build-arg API_KEY="ci-scan-dummy-key" \
+            -t appbaq-frontend:ci-scan .
 
       - name: Run Trivy Container Vulnerability Scan
         id: trivy_image
-        # Scans the built image for OS and system package CVEs[cite: 1, 2]
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'image'
