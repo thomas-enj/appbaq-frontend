@@ -1,0 +1,92 @@
+name: Accessibility - axe-core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  a11y-scan:
+    name: Accessibility Scan (axe-core)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build frontend application
+        run: npm run build
+
+      - name: Start HTTP Server in Background
+        run: |
+          ./node_modules/.bin/http-server dist/azure-quiz-frontend/browser -p 4200 --silent > app-a11y.log 2>&1 &
+
+          echo "Waiting for HTTP server to become ready..."
+          READY=0
+          for i in {1..15}; do
+            if curl -s http://localhost:4200 > /dev/null 2>&1; then
+              echo "HTTP server is UP and ready on port 4200."
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ $READY -ne 1 ]; then
+            echo "❌ Application failed to start within timeout. Application logs:"
+            cat app-a11y.log
+            exit 1
+          fi
+
+      - name: Run axe-core Accessibility Scan
+        id: axe_scan
+        run: |
+          CHROMEDRIVER_PATH=$(command -v chromedriver)
+          if [ -z "$CHROMEDRIVER_PATH" ]; then
+            echo "ChromeDriver is not available on the runner."
+            exit 1
+          fi
+
+          set +e
+          ./node_modules/.bin/axe http://localhost:4200 --exit --chromedriver-path "$CHROMEDRIVER_PATH" 2>&1 | tee axe-report.txt
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          echo "## ♿ Accessibility Scan Summary (axe-core)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.axe_scan.outputs.exit_code }}" = "0" ]; then
+            echo "🟢 **PASSED**: No accessibility violations found." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 🔴 Accessibility Violations Detected" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat axe-report.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> **Note**: Automated accessibility checks complement but do not replace manual testing." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce scan result
+        if: steps.axe_scan.outputs.exit_code != '0'
+        # Fails the entire GitHub Action job if axe-core found violations
+        run: |
+          echo "axe-core detected accessibility violations. Failing the job."
+          exit ${{ steps.axe_scan.outputs.exit_code }}

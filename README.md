@@ -36,7 +36,7 @@ A single page application is built with Angular 22 and TypeScript (`angular.json
 
 ## 📦 Containerization & Kubernetes Deployment
 
-* **Docker:** The image is produced by the inherited multi-stage `Dockerfile` — the bundle is built on `node:24-alpine`, then served by `nginx:1.27-alpine`. Nginx is configured to listen on port 8080 rather than 80, so that the image remains compatible with an unprivileged execution context.
+* **Docker:** The image is produced by the inherited multi-stage `Dockerfile` — the bundle is built on `node:24-alpine`, then served by `nginx:1.30.5-alpine`. Nginx is configured to listen on port 8080 rather than 80, so that the image remains compatible with an unprivileged execution context.
 * **Helm Chart:** The Deployment, the Service, and the NetworkPolicies are orchestrated by the chart located in `helm/appbaq-frontend/` and are released into the shared project namespace, next to the backend. Liveness and readiness probes are wired to `/healthz`, and CPU and memory requests and limits are declared.
 * **Build-time configuration:** The API base path and the backend API key are baked into the JavaScript bundle at build time through `--build-arg`, since Angular resolves `environment.ts` at compile time. Any change to these values therefore requires a rebuild and a redeployment, not a simple `helm upgrade`.
 

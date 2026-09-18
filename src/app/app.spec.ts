@@ -25,10 +25,10 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render the toolbar title link', () => {
+  it('should render the toolbar title link inside a header landmark', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.toolbar-title')).toBeTruthy();
+    expect(compiled.querySelector('header .toolbar-title')).toBeTruthy();
   });
 });

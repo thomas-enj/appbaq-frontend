@@ -31,8 +31,11 @@ RUN sed -i "s#https://REPLACE_WITH_PROD_API_URL/api#${API_BASE_URL}#" src/enviro
 RUN npm run build:prod
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM nginx:1.27-alpine
+FROM nginx:1.30.5-alpine@sha256:a5f2157a0302eb0c5e300415effb63a9e70ed1eb9c107283819bf6d149ab607c
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/azure-quiz-frontend/browser /usr/share/nginx/html
+RUN chown -R nginx:nginx /var/cache/nginx /var/run /var/log/nginx
 
-EXPOSE 80
+EXPOSE 8080
+
+USER nginx

@@ -1,0 +1,100 @@
+name: Container & IaC - Trivy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  iac-misconfig:
+    name: IaC Misconfiguration Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Trivy IaC Misconfig Scan
+        id: trivy_iac
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          scanners: 'misconfig'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-iac-report.txt'
+          format: 'table'
+          exit-code: '1'
+        continue-on-error: true
+
+      - name: Generate IaC Job Summary
+        if: always()
+        run: |
+          echo "## 🛡️ IaC Misconfiguration Summary (Dockerfile, Helm & Nginx)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s trivy-iac-report.txt ]; then
+            echo "### ⚠️ Misconfigurations Detected" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat trivy-iac-report.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🟢 **No HIGH or CRITICAL misconfigurations found in IaC files.**" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Enforce IaC scan result
+        if: steps.trivy_iac.outcome == 'failure'
+        run: |
+          echo "Trivy detected HIGH or CRITICAL misconfigurations. Failing the job."
+          exit 1
+
+  container-image:
+    name: Container Image Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg API_BASE_URL="https://ci-scan-dummy-url" \
+            --build-arg API_KEY="ci-scan-dummy-key" \
+            -t appbaq-frontend:ci-scan .
+
+      - name: Run Trivy Container Vulnerability Scan
+        id: trivy_image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'appbaq-frontend:ci-scan'
+          scanners: 'vuln'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-image-report.txt'
+          format: 'table'
+          exit-code: '1'
+        continue-on-error: true
+
+      - name: Generate Container Job Summary
+        if: always()
+        run: |
+          echo "## 🐳 Container Image Vulnerability Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s trivy-image-report.txt ]; then
+            echo "### ⚠️ Vulnerabilities Detected in Container Image" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat trivy-image-report.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🟢 **No HIGH or CRITICAL vulnerabilities found in the built container image.**" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Enforce container scan result
+        if: steps.trivy_image.outcome == 'failure'
+        run: |
+          echo "Trivy detected HIGH or CRITICAL vulnerabilities in the container image. Failing the job."
+          exit 1

@@ -1,0 +1,52 @@
+name: SAST - SonarCloud
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  sonarcloud-analysis:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Full history required for git blame and PR differential analysis
+
+      - name: SonarCloud Scan
+        id: sonar
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=thomas-enj_appbaq-frontend
+            -Dsonar.organization=thomas-enj
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=src/**/*.spec.ts
+            -Dsonar.exclusions=src/**/*.spec.ts
+            -Dsonar.qualitygate.wait=true
+
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          echo "## 🛡️ SAST Scan Summary — SonarCloud" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The scan was performed using the official SonarQube action." >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "| **Quality Gate** | 🟢 **PASSED** |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| **Quality Gate** | 🔴 **FAILED** (Security threshold not met) |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "> 🔗 View full details on the [SonarCloud Dashboard](https://sonarcloud.io/dashboard?id=thomas-enj_appbaq-frontend)." >> "$GITHUB_STEP_SUMMARY"
