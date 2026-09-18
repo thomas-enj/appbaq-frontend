@@ -2,9 +2,9 @@ name: Container & IaC - Trivy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
         run: |
           echo "## 🛡️ IaC Misconfiguration Summary (Dockerfile, Helm & Nginx)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          
+
           if [ -s trivy-iac-report.txt ]; then
             echo "### ⚠️ Misconfigurations Detected" >> "$GITHUB_STEP_SUMMARY"
             echo '```text' >> "$GITHUB_STEP_SUMMARY"
@@ -82,7 +82,7 @@ jobs:
         run: |
           echo "## 🐳 Container Image Vulnerability Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          
+
           if [ -s trivy-image-report.txt ]; then
             echo "### ⚠️ Vulnerabilities Detected in Container Image" >> "$GITHUB_STEP_SUMMARY"
             echo '```text' >> "$GITHUB_STEP_SUMMARY"
