@@ -2,9 +2,9 @@ name: SCA - Software Composition Analysis
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -32,8 +32,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run npm audit
+        id: npm_audit
         # First security layer via npm advisories
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --json > npm-audit-report.json
         # Continue on error to allow Trivy to generate its report
         continue-on-error: true
 
@@ -45,8 +46,8 @@ jobs:
           scan-type: 'fs'
           scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
-          output: 'trivy-sca-report.txt'
-          format: 'table'
+          output: 'trivy-sca-report.json'
+          format: 'json'
           exit-code: '1'
         continue-on-error: true
 
@@ -55,21 +56,52 @@ jobs:
         run: |
           echo "## 📦 SCA Scan Summary (Dependencies)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          if [ -s trivy-sca-report.txt ]; then
-            echo "### ⚠️ Vulnerabilities Detected in Dependencies" >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            cat trivy-sca-report.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### npm audit" >> "$GITHUB_STEP_SUMMARY"
+          if jq -e '.metadata.vulnerabilities' npm-audit-report.json > /dev/null 2>&1; then
+            npm_total=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit-report.json)
+            if [ "$npm_total" -gt 0 ]; then
+              npm_counts=$(jq -r '.metadata.vulnerabilities | "critical: \(.critical), high: \(.high), moderate: \(.moderate), low: \(.low)"' npm-audit-report.json)
+              echo "⚠️ **$npm_total vulnerabilities found** ($npm_counts)." >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Package | Severity | Dependency | Fix available |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+              jq -r '.vulnerabilities | to_entries[] | [.key, .value.severity, (if .value.isDirect then "direct" else "transitive" end), (if .value.fixAvailable then "yes" else "no" end)] | @tsv' npm-audit-report.json |
+                while IFS=$'\t' read -r package severity dependency fix_available; do
+                  echo "| \`$package\` | $severity | $dependency | $fix_available |" >> "$GITHUB_STEP_SUMMARY"
+                done
+            else
+              echo "✅ **No vulnerabilities found by npm audit.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "🟢 **No HIGH or CRITICAL vulnerabilities found in npm dependencies.**" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ **npm audit did not produce a valid report.**" >> "$GITHUB_STEP_SUMMARY"
           fi
-          
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Trivy" >> "$GITHUB_STEP_SUMMARY"
+          if jq -e '.Results' trivy-sca-report.json > /dev/null 2>&1; then
+            trivy_total=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-sca-report.json)
+            if [ "$trivy_total" -gt 0 ]; then
+              echo "⚠️ **$trivy_total HIGH or CRITICAL vulnerabilities found.**" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Package | Vulnerability | Severity | Installed | Fixed version |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+              jq -r '.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // "-")] | @tsv' trivy-sca-report.json |
+                while IFS=$'\t' read -r package vulnerability severity installed fixed; do
+                  echo "| \`$package\` | $vulnerability | $severity | $installed | $fixed |" >> "$GITHUB_STEP_SUMMARY"
+                done
+            else
+              echo "✅ **No HIGH or CRITICAL vulnerabilities found.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "❌ **Trivy did not produce a valid report.**" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "> Scan performed on repository dependencies (package-lock.json)." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce scan result
-        if: steps.trivy_scan.outcome == 'failure'
+        if: steps.npm_audit.outcome == 'failure' || steps.trivy_scan.outcome == 'failure'
         run: |
-          echo "Trivy detected HIGH or CRITICAL vulnerabilities in dependencies. Failing the job."
+          echo "npm audit or Trivy detected HIGH or CRITICAL vulnerabilities in dependencies. Failing the job."
           exit 1
