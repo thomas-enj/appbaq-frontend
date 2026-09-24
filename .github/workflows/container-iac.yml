@@ -96,5 +96,6 @@ jobs:
       - name: Enforce container scan result
         if: steps.trivy_image.outcome == 'failure'
         run: |
-          echo "Trivy detected HIGH or CRITICAL vulnerabilities in the container image. Failing the job."
+          echo "Trivy detected HIGH or CRITICAL vulnerabilities in the container image:"
+          cat trivy-image-report.txt
           exit 1
